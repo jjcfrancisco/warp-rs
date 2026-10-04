@@ -16,6 +16,14 @@ impl Affine {
         let y = column * self.y_per_column + row * self.y_per_row + self.y;
         (x, y)
     }
+    pub fn column_row(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        if self.x_per_column == 0.0 || self.y_per_row == 0.0 {
+            return None;
+        }
+        let column = (x - self.x) / self.x_per_column;
+        let row = (y - self.y) / self.y_per_row;
+        Some((column, row))
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -50,5 +58,23 @@ mod tests {
     #[test]
     fn half_pixel_is_the_centre() {
         assert_eq!(north_up().xy(0.5, 0.5), (105.0, 495.0));
+    }
+
+    #[test]
+    fn column_row_reverses_xy() {
+        let a = north_up();
+        let (x, y) = a.xy(3.0, 2.0);
+        assert_eq!(a.column_row(x, y), Some((3.0, 2.0)));
+    }
+
+    #[test]
+    fn column_row_of_origin_is_zero_zero() {
+        assert_eq!(north_up().column_row(100.0, 500.0), Some((0.0, 0.0)));
+    }
+
+    #[test]
+    fn zero_pixel_size_cannot_be_inverted() {
+        let flat = Affine { x_per_column: 0.0, ..north_up() };
+        assert_eq!(flat.column_row(130.0, 500.0), None);
     }
 }
