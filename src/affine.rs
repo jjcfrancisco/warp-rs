@@ -1,13 +1,12 @@
-
 /// Represents an affine transformation for a raster dataset.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Affine {
-    pub x: f64, // top left corner of the top left pixel
+    pub x: f64,            // top left corner of the top left pixel
     pub x_per_column: f64, // pixel width when north-up
-    pub x_per_row: f64, // zero when north-up
-    pub y: f64, // top left corner of the top left pixel
+    pub x_per_row: f64,    // zero when north-up
+    pub y: f64,            // top left corner of the top left pixel
     pub y_per_column: f64, // zero when north-up
-    pub y_per_row: f64, // pixel height when north-up, negative
+    pub y_per_row: f64,    // pixel height when north-up, negative
 }
 
 impl Affine {
@@ -19,11 +18,15 @@ impl Affine {
     }
     /// Maps a world coordinate back to a pixel position, if possible.
     pub fn column_row(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        if self.x_per_column == 0.0 || self.y_per_row == 0.0 {
+        let determinant = self.x_per_column * self.y_per_row - self.x_per_row * self.y_per_column;
+        // Zero means the grid has no area, so there is no pixel to hand back.
+        if determinant == 0.0 {
             return None;
         }
-        let column = (x - self.x) / self.x_per_column;
-        let row = (y - self.y) / self.y_per_row;
+        let distance_x = x - self.x;
+        let distance_y = y - self.y;
+        let column = (distance_x * self.y_per_row - distance_y * self.x_per_row) / determinant;
+        let row = (distance_y * self.x_per_column - distance_x * self.y_per_column) / determinant;
         Some((column, row))
     }
     /// Maps a pixel of this grid to the matching pixel of source, if possible.
@@ -81,8 +84,51 @@ mod tests {
 
     #[test]
     fn zero_pixel_size_cannot_be_inverted() {
-        let flat = Affine { x_per_column: 0.0, ..north_up() };
+        let flat = Affine {
+            x_per_column: 0.0,
+            ..north_up()
+        };
         assert_eq!(flat.column_row(130.0, 500.0), None);
+    }
+
+    /// Turned 90 degrees: columns run north, rows run east.
+    fn rotated() -> Affine {
+        Affine {
+            x: 100.0,
+            x_per_column: 0.0,
+            x_per_row: 10.0,
+            y: 500.0,
+            y_per_column: 10.0,
+            y_per_row: 0.0,
+        }
+    }
+
+    #[test]
+    fn rotated_xy() {
+        assert_eq!(rotated().xy(3.0, 2.0), (120.0, 530.0));
+    }
+
+    #[test]
+    fn rotated_column_row_reverses_xy() {
+        let a = rotated();
+        let (x, y) = a.xy(3.0, 2.0);
+        assert_eq!(a.column_row(x, y), Some((3.0, 2.0)));
+    }
+
+    #[test]
+    fn rotated_grid_with_zero_pixel_width_is_still_invertible() {
+        assert!(rotated().column_row(120.0, 530.0).is_some());
+    }
+
+    #[test]
+    fn collapsed_grid_cannot_be_inverted() {
+        // Rows and columns point the same way, so the grid has no area.
+        let collapsed = Affine {
+            x_per_row: 10.0,
+            y_per_row: 0.0,
+            ..north_up()
+        };
+        assert_eq!(collapsed.column_row(130.0, 500.0), None);
     }
 
     #[test]
@@ -101,7 +147,11 @@ mod tests {
     #[test]
     fn locate_in_grid_with_half_size_pixels() {
         let source = north_up();
-        let destination = Affine { x_per_column: 5.0, y_per_row: -5.0, ..source };
+        let destination = Affine {
+            x_per_column: 5.0,
+            y_per_row: -5.0,
+            ..source
+        };
         assert_eq!(destination.locate_in(&source, 4.0, 2.0), Some((2.0, 1.0)));
     }
 }
