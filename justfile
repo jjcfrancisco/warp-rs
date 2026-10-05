@@ -43,6 +43,15 @@ lint: fmt check clippy
 # Everything CI runs
 ci-test: test-fmt clippy check-doc test
 
+# Print the minimum supported Rust version from Cargo.toml
+get-msrv:
+    @cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version'
+
+# Check the crate builds and tests on the MSRV toolchain
+test-msrv:
+    rustup toolchain install "$(just get-msrv)" --profile minimal
+    cargo +"$(just get-msrv)" test --all-targets
+
 # Delete build artifacts
 clean:
     cargo clean
