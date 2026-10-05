@@ -11,11 +11,13 @@ pub struct Affine {
 }
 
 impl Affine {
+    /// Maps a pixel position to a world coordinate.
     pub fn xy(&self, column: f64, row: f64) -> (f64, f64) {
         let x = column * self.x_per_column + row * self.x_per_row + self.x;
         let y = column * self.y_per_column + row * self.y_per_row + self.y;
         (x, y)
     }
+    /// Maps a world coordinate back to a pixel position, if possible.
     pub fn column_row(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         if self.x_per_column == 0.0 || self.y_per_row == 0.0 {
             return None;
