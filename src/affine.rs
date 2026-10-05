@@ -26,6 +26,11 @@ impl Affine {
         let row = (y - self.y) / self.y_per_row;
         Some((column, row))
     }
+    /// Maps a pixel of this grid to the matching pixel of source, if possible.
+    pub fn locate_in(&self, source: &Affine, column: f64, row: f64) -> Option<(f64, f64)> {
+        let (x, y) = self.xy(column, row);
+        source.column_row(x, y)
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -78,5 +83,25 @@ mod tests {
     fn zero_pixel_size_cannot_be_inverted() {
         let flat = Affine { x_per_column: 0.0, ..north_up() };
         assert_eq!(flat.column_row(130.0, 500.0), None);
+    }
+
+    #[test]
+    fn locate_in_same_grid_is_identity() {
+        let a = north_up();
+        assert_eq!(a.locate_in(&a, 3.0, 2.0), Some((3.0, 2.0)));
+    }
+
+    #[test]
+    fn locate_in_grid_shifted_one_pixel_right() {
+        let source = north_up();
+        let destination = Affine { x: 110.0, ..source };
+        assert_eq!(destination.locate_in(&source, 0.0, 0.0), Some((1.0, 0.0)));
+    }
+
+    #[test]
+    fn locate_in_grid_with_half_size_pixels() {
+        let source = north_up();
+        let destination = Affine { x_per_column: 5.0, y_per_row: -5.0, ..source };
+        assert_eq!(destination.locate_in(&source, 4.0, 2.0), Some((2.0, 1.0)));
     }
 }
