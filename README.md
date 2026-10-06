@@ -19,9 +19,9 @@ just --list  # everything else
 
 ## How this is written
 
-The code is written by hand, in conversation with Claude. Claude is the discussion
-partner for design, trade-offs and what GDAL does in a corner case. The implementation
-is typed by a human.
+The code is human-written, in conversation with Claude. Claude is the discussion
+partner for design, trade-offs and how existing tools handle the corner cases. A person
+writes the implementation.
 
 Two exceptions, stated plainly:
 
