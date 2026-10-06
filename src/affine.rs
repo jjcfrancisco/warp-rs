@@ -34,6 +34,57 @@ impl Affine {
         let (x, y) = self.xy(column, row);
         source.column_row(x, y)
     }
+    /// Creates an affine transformation from the six parameters used by rasterio.
+    ///
+    /// Source: <https://github.com/rasterio/affine/blob/main/src/affine/__init__.py>
+    pub fn from_rasterio(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64) -> Self {
+        Affine {
+            x_per_column: a,
+            x_per_row: b,
+            x: c,
+            y_per_column: d,
+            y_per_row: e,
+            y: f,
+        }
+    }
+    /// Creates an affine transformation from the six parameters used by GDAL.
+    ///
+    /// Source: <https://gdal.org/en/stable/user/raster_data_model.html#affine-geotransform>
+    pub fn from_gdal(gt: [f64; 6]) -> Self {
+        Affine {
+            x: gt[0],
+            x_per_column: gt[1],
+            x_per_row: gt[2],
+            y: gt[3],
+            y_per_column: gt[4],
+            y_per_row: gt[5],
+        }
+    }
+    /// Creates an affine transformation from the GeoTIFF tiepoint and pixel scale arrays.
+    ///
+    /// Source: <https://docs.ogc.org/is/19-008r4/19-008r4.html#_raster_space>
+    pub fn from_geotiff(
+        tiepoint: &[f64],
+        pixel_scale: &[f64],
+        pixel_is_point: bool,
+    ) -> Option<Self> {
+        if tiepoint.len() < 6 || pixel_scale.len() < 3 {
+            return None;
+        }
+        let mut affine = Affine {
+            x: tiepoint[3],
+            x_per_column: pixel_scale[0],
+            x_per_row: 0.0,
+            y: tiepoint[4],
+            y_per_column: 0.0,
+            y_per_row: -pixel_scale[1],
+        };
+        if pixel_is_point {
+            affine.x -= 0.5 * affine.x_per_column;
+            affine.y -= 0.5 * affine.y_per_row;
+        }
+        Some(affine)
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -48,6 +99,81 @@ mod tests {
             y_per_column: 0.0,
             y_per_row: -10.0,
         }
+    }
+
+    #[test]
+    fn from_rasterio_matches_struct_literal() {
+        assert_eq!(
+            Affine::from_rasterio(10.0, 0.0, 100.0, 0.0, -10.0, 500.0),
+            north_up()
+        );
+    }
+
+    #[test]
+    fn from_gdal_matches_struct_literal() {
+        assert_eq!(
+            Affine::from_gdal([100.0, 10.0, 0.0, 500.0, 0.0, -10.0]),
+            north_up()
+        );
+    }
+
+    #[test]
+    fn from_gdal_and_from_rasterio_agree() {
+        // Same grid, two orderings. The shuffle is the whole point.
+        assert_eq!(
+            Affine::from_gdal([100.0, 10.0, 0.0, 500.0, 0.0, -10.0]),
+            Affine::from_rasterio(10.0, 0.0, 100.0, 0.0, -10.0, 500.0)
+        );
+    }
+
+    #[test]
+    fn from_gdal_keeps_rotation_terms_apart() {
+        // Distinct values in every slot, so a swapped pair cannot pass.
+        let a = Affine::from_gdal([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(a.x, 1.0);
+        assert_eq!(a.x_per_column, 2.0);
+        assert_eq!(a.x_per_row, 3.0);
+        assert_eq!(a.y, 4.0);
+        assert_eq!(a.y_per_column, 5.0);
+        assert_eq!(a.y_per_row, 6.0);
+    }
+
+    #[test]
+    fn from_geotiff_matches_struct_literal() {
+        let tiepoint = [0.0, 0.0, 0.0, 100.0, 500.0, 0.0];
+        let pixel_scale = [10.0, 10.0, 0.0];
+        assert_eq!(
+            Affine::from_geotiff(&tiepoint, &pixel_scale, false),
+            Some(north_up())
+        );
+    }
+
+    #[test]
+    fn from_geotiff_flips_pixel_height_sign() {
+        // The tag stores a positive height; rows run south, so ours is negative.
+        let a = Affine::from_geotiff(&[0.0; 6], &[10.0, 10.0, 0.0], false).unwrap();
+        assert_eq!(a.y_per_row, -10.0);
+    }
+
+    #[test]
+    fn from_geotiff_pixel_is_point_shifts_origin_to_corner() {
+        let tiepoint = [0.0, 0.0, 0.0, 100.0, 500.0, 0.0];
+        let pixel_scale = [10.0, 10.0, 0.0];
+        let a = Affine::from_geotiff(&tiepoint, &pixel_scale, true).unwrap();
+        // The file said (100, 500) is the centre of pixel (0, 0).
+        // The corner is half a pixel up and left of that.
+        assert_eq!((a.x, a.y), (95.0, 505.0));
+        // So the centre comes back out as the file's own number.
+        assert_eq!(a.xy(0.5, 0.5), (100.0, 500.0));
+    }
+
+    #[test]
+    fn from_geotiff_rejects_short_tags() {
+        assert_eq!(
+            Affine::from_geotiff(&[0.0; 5], &[10.0, 10.0, 0.0], false),
+            None
+        );
+        assert_eq!(Affine::from_geotiff(&[0.0; 6], &[10.0, 10.0], false), None);
     }
 
     #[test]
