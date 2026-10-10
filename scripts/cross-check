@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+"""Compare warp-rs with the affine package and GDAL.
+
+Runs `cargo run --example cross_check` and checks every line it prints.
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy
+from affine import Affine
+from rasterio.io import MemoryFile
+from rasterio.transform import array_bounds
+
+ROOT = Path(__file__).parents[1]
+TOLERANCE = 1e-9
+
+
+def close(ours, theirs):
+    if ours is None or theirs is None:
+        return ours is theirs
+    return all(abs(a - b) <= TOLERANCE for a, b in zip(ours, theirs))
+
+
+def gdal_view(geotransform, width, height):
+    """Write a GeoTIFF in memory and read it back through GDAL."""
+    with MemoryFile() as memory:
+        with memory.open(
+            driver="GTiff",
+            width=width,
+            height=height,
+            count=1,
+            dtype="uint8",
+            transform=Affine.from_gdal(*geotransform),
+        ) as dataset:
+            dataset.write(numpy.zeros((1, height, width), dtype="uint8"))
+        with memory.open() as dataset:
+            return dataset.transform, dataset.bounds
+
+
+def sorted_box(bounds):
+    """GDAL and affine do not sort. We do."""
+    left, bottom, right, top = bounds
+    return (min(left, right), min(bottom, top), max(left, right), max(bottom, top))
+
+
+def check(case):
+    kind = case["kind"]
+
+    if kind == "xy":
+        transform = Affine.from_gdal(*case["geotransform"])
+        # Column first, pixel corner, same as ours.
+        theirs = transform * (case["column"], case["row"])
+        return close(case["result"], theirs), theirs
+
+    if kind == "column_row":
+        transform = Affine.from_gdal(*case["geotransform"])
+        theirs = ~transform * (case["x"], case["y"])
+        return close(case["result"], theirs), theirs
+
+    if kind == "contains":
+        column, row = case["column"], case["row"]
+        theirs = 0 <= column < case["width"] and 0 <= row < case["height"]
+        return case["result"] == theirs, theirs
+
+    if kind == "bounds":
+        geotransform = case["geotransform"]
+        width, height = case["width"], case["height"]
+        gdal_transform, gdal_bounds = gdal_view(geotransform, width, height)
+        affine_bounds = array_bounds(height, width, Affine.from_gdal(*geotransform))
+        gdal_matches = close(geotransform, gdal_transform.to_gdal())
+        bounds_match = close(case["result"], sorted_box(affine_bounds))
+        # GDAL bounds are only meaningful north-up.
+        if geotransform[2] == 0 and geotransform[4] == 0:
+            bounds_match = bounds_match and close(case["result"], sorted_box(gdal_bounds))
+        return gdal_matches and bounds_match, (tuple(gdal_bounds), affine_bounds)
+
+    if kind == "locate":
+        destination = Affine.from_gdal(*case["destination_geotransform"])
+        source = Affine.from_gdal(*case["source_geotransform"])
+        column, row = ~source * (destination * (case["column"], case["row"]))
+        inside = 0 <= column < case["source_width"] and 0 <= row < case["source_height"]
+        theirs = (column, row) if inside else None
+        return close(case["result"], theirs), theirs
+
+    raise ValueError(kind)
+
+
+def main():
+    output = subprocess.run(
+        ["cargo", "run", "--quiet", "--example", "cross_check"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    counts = {}
+    failures = []
+    for line in output.splitlines():
+        case = json.loads(line)
+        passed, theirs = check(case)
+        kind = case["kind"]
+        counts.setdefault(kind, [0, 0])
+        counts[kind][0 if passed else 1] += 1
+        if not passed:
+            failures.append((case, theirs))
+
+    print(f"{'check':<12}{'pass':>8}{'fail':>8}")
+    for kind, (passed, failed) in counts.items():
+        print(f"{kind:<12}{passed:>8}{failed:>8}")
+
+    for case, theirs in failures:
+        print()
+        print("FAIL", json.dumps(case))
+        print("     theirs:", theirs)
+
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()

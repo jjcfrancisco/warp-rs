@@ -1,0 +1,12 @@
+[project]
+name = "warp-rs"
+version = "0.0.0"
+description = "This package is never released, it only exists for uv."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+cross-check = ["affine>=3.0", "numpy>=2.0", "rasterio>=1.4"]
+
+[tool.uv]
+default-groups = ["cross-check"]

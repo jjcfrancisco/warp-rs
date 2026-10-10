@@ -37,6 +37,10 @@ docs: check-doc
 bench *args:
     cargo bench {{args}}
 
+# Compare against the affine package and GDAL
+cross-check:
+    uv run scripts/cross-check
+
 # Format, check and lint
 lint: fmt check clippy
 
