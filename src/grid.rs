@@ -19,15 +19,27 @@ impl Grid {
     ///
     /// Source: <https://github.com/rasterio/rasterio/blob/main/rasterio/_base.pyx>
     pub fn bounds(&self) -> (f64, f64, f64, f64) {
-        let (top_left_x, top_left_y) = self.transform.xy(0.0, 0.0);
-        let (bottom_right_x, bottom_right_y) =
-            self.transform.xy(self.width as f64, self.height as f64);
-        (
-            top_left_x.min(bottom_right_x),
-            top_left_y.min(bottom_right_y),
-            top_left_x.max(bottom_right_x),
-            top_left_y.max(bottom_right_y),
-        )
+        let width = self.width as f64;
+        let height = self.height as f64;
+        let corners = [
+            self.transform.xy(0.0, 0.0),
+            self.transform.xy(width, 0.0),
+            self.transform.xy(0.0, height),
+            self.transform.xy(width, height),
+        ];
+        let (mut left, mut bottom, mut right, mut top) = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for (x, y) in corners {
+            left = left.min(x);
+            bottom = bottom.min(y);
+            right = right.max(x);
+            top = top.max(y);
+        }
+        (left, bottom, right, top)
     }
     /// Maps a pixel of this grid to the matching pixel of source, if it lands inside.
     pub fn locate(&self, source: &Grid, column: f64, row: f64) -> Option<(f64, f64)> {
@@ -88,6 +100,28 @@ mod tests {
         let (left, bottom, right, top) = rotated.bounds();
         assert!(left < right);
         assert!(bottom < top);
+    }
+
+    #[test]
+    fn bounds_rotated_30_degrees_uses_all_four_corners() {
+        // Expected values come from the affine package and GDAL.
+        let rotated = Grid {
+            width: 12,
+            height: 7,
+            transform: Affine::from_gdal([
+                1000.0,
+                8.660254037844387,
+                5.0,
+                2000.0,
+                5.0,
+                -8.660254037844387,
+            ]),
+        };
+        let (left, bottom, right, top) = rotated.bounds();
+        assert_eq!(left, 1000.0);
+        assert!((bottom - 1939.3782217350893).abs() < 1e-9);
+        assert!((right - 1138.9230484541326).abs() < 1e-9);
+        assert_eq!(top, 2060.0);
     }
 
     #[test]
